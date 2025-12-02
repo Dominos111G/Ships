@@ -1,0 +1,666 @@
+/******************************************************************************
+ * Tytuł       : Statki
+ * Autor       : Dominik Szczerbal
+ * Klasa       : 3 TIP
+ * Data        : 2025-10-25
+ * Wersja      : 0.7
+ * Opis        : Gra w statki oline dla dwóch graczy z wykorzystaniem SFML
+ * Zależności  : C++98 lub nowszy
+ * Kompilacja  : g++ main.cpp -o main -lsfml-graphics -lsfml-window -lsfml-system
+ * Uruchomienie: ./main
+ * Kontakt     : d.szczerbal@zset.leszno.pl
+ ******************************************************************************/
+
+#define _CRT_SECURE_NO_WARNINGS
+
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <random>
+#include <vector>
+#include <chrono>
+#include <thread>
+
+#include <SFML/Graphics.hpp>
+#include <SFML/Window.hpp>
+#include <SFML/Network.hpp>
+
+using namespace std;
+
+auto now = chrono::system_clock::now();
+
+class player {
+private:
+    int placed = 0;
+    int maxShips = 20;
+    vector<vector<int>> table = vector<vector<int>>(10, vector<int>(10, 0));
+    vector<vector<int>> shot = vector<vector<int>>(10, vector<int>(10, 0));
+public:
+    void handlePlayerShot(int row, int col) {
+        if (this->shot[row][col] == 1) {
+            cout << "Już strzelałeś w to pole!" << "\n";
+            return;
+        }
+
+        if (this->table[row][col] == 1) {
+            cout << "TRAFIONY!" << "\n";
+            this->shot[row][col] = 1;
+            this->table[row][col] = 3;
+        } else {
+            cout << "PUDŁO!" << "\n";
+            this->shot[row][col] = 1;
+            this->table[row][col] = 4;
+        }
+    }
+
+    int getValue(int row, int col) {
+        return this->table[row][col];
+    }
+
+    bool placeShip(int row, int col) {
+        if (this->table[row][col] == 1) {
+            this->placed = this->placed - 1;
+            this->table[row][col] = 0;
+            return true;
+        }
+
+        if (this->placed < this->maxShips) {
+            this->placed = this->placed + 1;
+            this->table[row][col] = 1;
+            return true;
+        }
+        return false;
+    }
+
+    int getShipsAmount() {
+        return this->placed;
+    }
+
+    int getMaxShipsAmount() {
+        return this->maxShips;
+    }
+};
+
+sf::Color getOutlineColor(int val) {
+    if (val == 4) return sf::Color::White;
+    if (val == 3) return sf::Color::Blue;
+    if (val == 2) return sf::Color::Blue;
+    if (val == 1) return sf::Color::Blue;
+    return sf::Color::White;
+}
+
+sf::Color getFillColor(int val) {
+    if (val == 4) return sf::Color::Red;
+    if (val == 3) return sf::Color::Red;
+    if (val == 2) return sf::Color::Yellow;
+    if (val == 1) return sf::Color::Transparent;
+    return sf::Color::Transparent;
+}
+
+bool isMouseOverEnemyBoard(int mouseX, int mouseY) {
+    return (mouseX >= 30 && mouseX <= 30 + 10 * 40 &&
+        mouseY >= 80 && mouseY <= 80 + 10 * 40);
+}
+
+pair<int, int> getEnemyBoardPosition(int mouseX, int mouseY) {
+    int col = (mouseX - 30) / 40;
+    int row = (mouseY - 80) / 40;
+    return make_pair(col, row);
+}
+
+bool isMouseOverLocalBoard(int mouseX, int mouseY) {
+    return (mouseX >= 30 + 485 && mouseX <= 30 + 485 + 10 * 40 &&
+        mouseY >= 80 && mouseY <= 80 + 10 * 40);
+}
+
+pair<int, int> getLocalBoardPosition(int mouseX, int mouseY) {
+    int col = (mouseX - (30 + 485)) / 40;
+    int row = (mouseY - 80) / 40;
+    return make_pair(col, row);
+}
+
+int main() {
+    sf::Font font;
+    if (!font.loadFromFile("Bitter.ttf"))
+    {
+        cout << "Font error!";
+        return -1;
+    }
+
+    // ZMIENNE GRY
+    player localTab;
+    player enemyTab;
+    bool ready = false;
+    bool readyEnemy = false;
+    bool started = false;
+
+    // USTAWIENIA
+	bool UdebugMode = false;
+    bool UshowBoard = false;
+	bool UshowEnemyBoard = false;
+
+	// ŁĄCZENIE SIECIOWE
+    bool isHost = false;
+    sf::TcpListener listener;
+    sf::TcpSocket socket;
+    socket.setBlocking(false);
+    sf::IpAddress otherIp;
+
+    while (true) {
+        cout << "Host (h) czy Join (j)? ";
+        char opt; cin >> opt;
+	    opt = tolower(opt);
+
+        if (opt == 'h') {
+            isHost = true;
+
+            cout << "Nasluchuje na porcie 53000..." << "\n";
+            if (listener.listen(53000) != sf::Socket::Done) {
+                cout << "Nie mozna nasluchiwac!" << "\n";
+                return -1;
+            }
+
+            listener.setBlocking(false);
+            break;
+
+        } else if (opt == 'z') {
+            while (opt == 'z') {
+                cout << "\nUsetawienia\n1. debugMode = " << UdebugMode << "\n2. showBoard = " << UshowBoard << "\n3. showEnemyBoard = " << UshowEnemyBoard << "\n4. Wyjście\nWyb: ";
+				char Uopt; cin >> Uopt;
+                switch (Uopt) {
+                case '1':
+                    UdebugMode = !UdebugMode;
+                    continue;
+                case '2':
+                    UshowBoard = !UshowBoard;
+                    continue;
+                case '3':
+                    UshowEnemyBoard = !UshowEnemyBoard;
+                    continue;
+                case '4':
+                    opt = ' ';
+                    cout << "\n";
+                }
+            }
+        } else {
+            cout << "Podaj IP hosta: ";
+            string ip; cin >> ip;
+            otherIp = ip;
+            cout << "Probuje polaczyc..." << "\n";
+
+            if (socket.connect(otherIp, 53000, sf::seconds(10)) != sf::Socket::Done) {
+                cout << "Ponawiam łączenie..." << "\n"; // nadal kontynuujemy, uzytkownik moze sprobowac pozniej
+
+            } else {
+                cout << "Polaczono z hostem: " << otherIp << "\n";
+                socket.setBlocking(false);
+            }
+
+            break;
+        }
+    }
+
+    if (isHost) {
+        bool connected = false;
+        cout << "Oczekiwanie na przeciwnika..." << "\n";
+
+        while (true) {
+            if (socket.getRemoteAddress() == sf::IpAddress::None) {
+                sf::Socket::Status status = listener.accept(socket);
+                if (status == sf::Socket::Done) {
+                    cout << "Klient polaczony: " << socket.getRemoteAddress() << "\n";
+                    socket.setBlocking(false);
+                    connected = true;
+                    break;
+                }
+            }
+        }
+
+        if (!connected) {
+            cout << "Upłynął limit czasu oczekiwania!" << "\n";
+            return 0;
+        }
+
+        sf::RenderWindow window(sf::VideoMode(950, 600), "Ships (network host)");
+
+        while (window.isOpen()) {
+            // odbiór pakietów (non-blocking)
+            if (socket.getRemoteAddress() != sf::IpAddress::None || (!isHost && socket.getRemoteAddress() != sf::IpAddress::None)) {
+                sf::Packet packet;
+                sf::Socket::Status recvStatus = socket.receive(packet);
+                if (recvStatus == sf::Socket::Done) {
+                    string cmd; packet >> cmd;
+                    if (cmd == "READY") {
+                        readyEnemy = true;
+
+                        if (ready && readyEnemy) {
+                            started = true;
+                            cout << "Started!";
+
+                            sf::Packet out; out << string("START") << true;
+                            socket.send(out);
+                        }
+                        else {
+                            sf::Packet out; out << string("RESULT") << true;
+                            socket.send(out);
+                        }
+
+                    }
+                    else if (cmd == "NOTREADY") {
+                        readyEnemy = false;
+
+                        sf::Packet out; out << string("RESULT") << true;
+                        socket.send(out);
+
+                    }
+                    else if (cmd == "START") {
+                        readyEnemy = true;
+                        ready = true;
+                        started = true;
+                    }
+                    else if (cmd == "PLACE") {
+                        int col, row; packet >> col >> row;
+                        if (UdebugMode) cout << "Otrzymano: " << col << "," << row << "\n";
+
+                        enemyTab.placeShip(row, col);
+
+                        sf::Packet out; out << string("RESULT") << true;
+                        socket.send(out);
+
+                    } else if (cmd == "SHOT") {
+                        int col, row; packet >> col >> row;
+                        if (UdebugMode) cout << "Otrzymano strzal: " << col << "," << row << "\n";
+
+                        localTab.handlePlayerShot(row, col);
+
+                        sf::Packet out; out << string("RESULT") << true;
+                        socket.send(out);
+
+                    } else if (cmd == "DISCONECTED") {
+                        cout << "Player disconected!" << "\n";
+                        return 0;
+
+                    } else if (cmd == "RESULT" && UdebugMode) {
+						cout << "Otrzymano potwierdzenie!" << "\n";
+
+                    } else {
+                        if (UdebugMode) cout << "cmdE: " << cmd;
+                    }
+                }
+            }
+
+            sf::Event event;
+            while (window.pollEvent(event)) {
+                if (event.type == sf::Event::Closed) {
+                    sf::Packet out; out << string("DISCONECTED");
+                    socket.send(out);
+
+                    window.close();
+                }
+
+                if (event.type == sf::Event::MouseButtonPressed) {
+                    if (event.mouseButton.button == sf::Mouse::Left) {
+                        int mouseX = event.mouseButton.x;
+                        int mouseY = event.mouseButton.y;
+
+                        if (isMouseOverEnemyBoard(mouseX, mouseY)) {
+                            pair<int, int> pos = getEnemyBoardPosition(mouseX, mouseY);
+                            int col = pos.first;
+                            int row = pos.second;
+
+                            if (col >= 0 && col < 10 && row >= 0 && row < 10) {
+                                if (started) {
+                                    enemyTab.handlePlayerShot(row, col);
+
+                                    if (UdebugMode) cout << "SHOT SENDED!!!";
+
+                                    sf::Packet out; out << string("SHOT") << col << row;
+                                    if (socket.getRemoteAddress() != sf::IpAddress::None) socket.send(out);
+                                }
+                            }
+                        }
+                        if (isMouseOverLocalBoard(mouseX, mouseY)) {
+                            pair<int, int> pos = getLocalBoardPosition(mouseX, mouseY);
+                            int col = pos.first;
+                            int row = pos.second;
+
+                            if (col >= 0 && col < 10 && row >= 0 && row < 10) {
+                                if (!started && !ready) {
+                                    localTab.placeShip(row, col);
+                                    sf::Packet out; out << string("PLACE") << col << row;
+                                    if (socket.getRemoteAddress() != sf::IpAddress::None) socket.send(out);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (event.type == sf::Event::KeyPressed) {
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::G)) {
+                        if (ready == false) {
+                            if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
+                                ready = true;
+                                cout << "Gotowy!" << "\n";
+
+                                sf::Packet out; out << string("READY") << true;
+                                socket.send(out);
+
+                                if (ready && readyEnemy) {
+                                    started = true;
+                                    cout << "Start!";
+
+                                    sf::Packet out; out << string("START");
+                                    socket.send(out);
+                                }
+                            }
+                        } else if (ready && !started) {
+                            ready = false;
+                            cout << "Niegotowy!" << "\n";
+
+                            sf::Packet out; out << string("NOTREADY") << true;
+                            socket.send(out);
+                        }
+                    }
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::P)) {
+						if (UshowBoard == true) {
+                            cout << "\n\n\nPLAYER\n";
+                            for (int i = 0; i < 10; i++) {
+                                for (int j = 0; j < 10; j++) {
+                                    cout << " " << localTab.getValue(i, j) << " ";
+                                }
+                                cout << "\n";
+                            }
+                        }
+
+                        if (UshowEnemyBoard == true) {
+                            cout << "\n\nENEMY\n";
+                            for (int i = 0; i < 10; i++) {
+                                for (int j = 0; j < 10; j++) {
+                                    cout << " " << enemyTab.getValue(i, j) << " ";
+                                }
+                                cout << "\n";
+                            }
+                            cout << "\n\n";
+                        }
+                    }
+                }
+            }
+
+            window.clear(sf::Color::Black);
+
+            sf::Text text;
+            text.setFont(font);
+            text.setPosition(100.f, 15.f);
+            text.setString("ENEMY BOARD");
+            text.setCharacterSize(34);
+            text.setFillColor(sf::Color::White);
+            window.draw(text);
+
+            for (int i = 0; i < 10; i++) {
+                for (int j = 0; j < 10; j++) {
+                    sf::RectangleShape square({ 30.f, 30.f });
+                    square.setPosition(i * 40.f + 30.f, j * 40.f + 80.f);
+                    square.setOutlineThickness(2.f);
+
+                    if (enemyTab.getValue(j, i) != 1) {
+                        square.setOutlineColor(getOutlineColor(enemyTab.getValue(j, i)));
+                        square.setFillColor(getFillColor(enemyTab.getValue(j, i)));
+                    }
+                    else {
+                        square.setOutlineColor(sf::Color::White);
+                        square.setFillColor(sf::Color::Transparent);
+                    }
+                    window.draw(square);
+                }
+            }
+
+            text.setPosition(600.f, 15.f);
+            text.setString("YOUR SHIPS");
+            text.setCharacterSize(34);
+            window.draw(text);
+
+            for (int i = 0; i < 10; i++) {
+                for (int j = 0; j < 10; j++) {
+                    sf::RectangleShape square({ 30.f, 30.f });
+                    square.setPosition(i * 40.f + 30.f + 485.f, j * 40.f + 80.f);
+                    square.setOutlineThickness(2.f);
+
+                    square.setOutlineColor(getOutlineColor(localTab.getValue(j, i)));
+                    square.setFillColor(getFillColor(localTab.getValue(j, i)));
+
+                    window.draw(square);
+                }
+            }
+
+            text.setPosition(50.f, 520.f);
+            text.setString("Kliknij na plansze aby ustawic statek. \n" + to_string(localTab.getShipsAmount()) + " / " + to_string(localTab.getMaxShipsAmount()));
+            text.setCharacterSize(20);
+            window.draw(text);
+
+            window.display();
+        }
+    } else {
+        sf::RenderWindow window(sf::VideoMode(950, 600), "Ships (network)");
+
+        while (window.isOpen()) {
+            // odbiór pakietów (non-blocking)
+            if (socket.getRemoteAddress() != sf::IpAddress::None || (!isHost && socket.getRemoteAddress() != sf::IpAddress::None)) {
+                sf::Packet packet;
+                sf::Socket::Status recvStatus = socket.receive(packet);
+                if (recvStatus == sf::Socket::Done) {
+                    string cmd; packet >> cmd;
+                    if (cmd == "READY") {
+                        readyEnemy = true;
+
+                        if (ready && readyEnemy) {
+                            started = true;
+                            cout << "Started!";
+
+                            sf::Packet out; out << string("START") << true;
+                            socket.send(out);
+                        } else {
+                            sf::Packet out; out << string("RESULT") << true;
+                            socket.send(out);
+                        }
+
+                    }
+                    else if (cmd == "NOTREADY") {
+                        readyEnemy = false;
+                        
+                        sf::Packet out; out << string("RESULT") << true;
+                        socket.send(out);
+
+                    }
+                    else if (cmd == "START") {
+                        readyEnemy = true;
+                        ready = true;
+                        started = true;
+                    }
+                    else if (cmd == "PLACE") {
+                        int col, row; packet >> col >> row;
+                        if (UdebugMode) cout << "Otrzymano: " << col << "," << row << "\n";
+
+                        enemyTab.placeShip(row, col);
+
+                        sf::Packet out; out << string("RESULT") << true;
+                        socket.send(out);
+
+                    }
+                    else if (cmd == "SHOT") {
+                        int col, row; packet >> col >> row;
+                        if (UdebugMode) cout << "Otrzymano strzal: " << col << "," << row << "\n";
+
+                        localTab.handlePlayerShot(row, col);
+
+                        sf::Packet out; out << string("RESULT") << true;
+                        socket.send(out);
+
+                    }
+                    else if (cmd == "DISCONECTED") {
+                        cout << "Player disconected!" << "\n";
+                        return 0;
+
+                    } else if (cmd == "RESULT") {
+                        // RESULT - TRUE
+
+                    } else {
+                        if (UdebugMode) cout << "cmdE: " << cmd;
+                    }
+                }
+            }
+
+            sf::Event event;
+            while (window.pollEvent(event)) {
+                if (event.type == sf::Event::Closed) {
+                    sf::Packet out; out << string("DISCONECTED");
+                    socket.send(out);
+
+                    window.close();
+                };
+
+                if (event.type == sf::Event::MouseButtonPressed) {
+                    if (event.mouseButton.button == sf::Mouse::Left) {
+                        int mouseX = event.mouseButton.x;
+                        int mouseY = event.mouseButton.y;
+
+                        if (isMouseOverEnemyBoard(mouseX, mouseY)) {
+                            pair<int, int> pos = getEnemyBoardPosition(mouseX, mouseY);
+                            int col = pos.first;
+                            int row = pos.second;
+
+                            if (col >= 0 && col < 10 && row >= 0 && row < 10) {
+                                if (started) {
+                                    enemyTab.handlePlayerShot(row, col);
+
+                                    if (UdebugMode) cout << "SHOT SENDED!!!";
+                                    
+                                    sf::Packet out; out << string("SHOT") << col << row;
+                                    socket.send(out);
+                                }
+                            }
+                        }
+                        if (isMouseOverLocalBoard(mouseX, mouseY)) {
+                            pair<int, int> pos = getLocalBoardPosition(mouseX, mouseY);
+                            int col = pos.first;
+                            int row = pos.second;
+
+                            if (col >= 0 && col < 10 && row >= 0 && row < 10) {
+                                if (!started && !ready) {
+                                    localTab.placeShip(row, col);
+                                    sf::Packet out; out << string("PLACE") << col << row;
+                                    socket.send(out);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (event.type == sf::Event::KeyPressed) {
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::G)) {
+                        if (ready == false) {
+                            if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
+                                ready = true;
+                                cout << "Gotowy!" << "\n";
+
+                                sf::Packet out; out << string("READY") << true;
+                                socket.send(out);
+
+                                if (ready && readyEnemy) {
+                                    started = true;
+                                    cout << "Start!";
+
+                                    sf::Packet out; out << string("START");
+                                    socket.send(out);
+                                }
+                            }
+                        }
+                        else if (ready && !started) {
+                            ready = false;
+                            cout << "Niegotowy!" << "\n";
+
+                            sf::Packet out; out << string("NOTREADY") << true;
+                            socket.send(out);
+                        }
+                    }
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::P)) {
+                        if (UshowBoard == true) {
+                            cout << "\n\n\nPLAYER\n";
+                            for (int i = 0; i < 10; i++) {
+                                for (int j = 0; j < 10; j++) {
+                                    cout << " " << localTab.getValue(i, j) << " ";
+                                }
+                                cout << "\n";
+                            }
+                        }
+
+                        if (UshowEnemyBoard == true) {
+                            cout << "\n\nENEMY\n";
+                            for (int i = 0; i < 10; i++) {
+                                for (int j = 0; j < 10; j++) {
+                                    cout << " " << enemyTab.getValue(i, j) << " ";
+                                }
+                                cout << "\n";
+                            }
+                            cout << "\n\n";
+                        }
+                    }
+                }
+            }
+
+            window.clear(sf::Color::Black);
+
+            sf::Text text;
+            text.setFont(font);
+            text.setPosition(100.f, 15.f);
+            text.setString("ENEMY BOARD");
+            text.setCharacterSize(34);
+            text.setFillColor(sf::Color::White);
+            window.draw(text);
+
+            for (int i = 0; i < 10; i++) {
+                for (int j = 0; j < 10; j++) {
+                    sf::RectangleShape square({ 30.f, 30.f });
+                    square.setPosition(i * 40.f + 30.f, j * 40.f + 80.f);
+                    square.setOutlineThickness(2.f);
+
+                    if (enemyTab.getValue(j, i) != 1) {
+                        square.setOutlineColor(getOutlineColor(enemyTab.getValue(j, i)));
+                        square.setFillColor(getFillColor(enemyTab.getValue(j, i)));
+                    }
+                    else {
+                        square.setOutlineColor(sf::Color::White);
+                        square.setFillColor(sf::Color::Transparent);
+                    }
+                    window.draw(square);
+                }
+            }
+
+            text.setPosition(600.f, 15.f);
+            text.setString("YOUR SHIPS");
+            text.setCharacterSize(34);
+            window.draw(text);
+
+            for (int i = 0; i < 10; i++) {
+                for (int j = 0; j < 10; j++) {
+                    sf::RectangleShape square({ 30.f, 30.f });
+                    square.setPosition(i * 40.f + 30.f + 485.f, j * 40.f + 80.f);
+                    square.setOutlineThickness(2.f);
+
+                    square.setOutlineColor(getOutlineColor(localTab.getValue(j, i)));
+                    square.setFillColor(getFillColor(localTab.getValue(j, i)));
+
+                    window.draw(square);
+                }
+            }
+
+            text.setPosition(50.f, 520.f);
+            text.setString("Kliknij na plansze aby ustawic statek. \n" + to_string(localTab.getShipsAmount()) + " / " + to_string(localTab.getMaxShipsAmount()));
+            text.setCharacterSize(20);
+            window.draw(text);
+
+            window.display();
+        }
+    }
+
+    return 0;
+}
