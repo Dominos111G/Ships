@@ -3,10 +3,11 @@
  * Autor       : Dominik Szczerbal
  * Klasa       : 3 TIP
  * Data        : 2025-10-25
- * Wersja      : 0.7
+ * Wersja      : 0.8
  * Opis        : Gra w statki oline dla dwóch graczy z wykorzystaniem SFML
  * Zależności  : C++98 lub nowszy
- * Kompilacja  : g++ main.cpp -o main -lsfml-graphics -lsfml-window -lsfml-system
+ * Kompilacja  : g++ main.cpp -o main -lsfml-graphics -lsfml-window 
+ *             : -lsfml-system
  * Uruchomienie: ./main
  * Kontakt     : d.szczerbal@zset.leszno.pl
  ******************************************************************************/
@@ -35,17 +36,85 @@ private:
     int maxShips = 20;
     vector<vector<int>> table = vector<vector<int>>(10, vector<int>(10, 0));
     vector<vector<int>> shot = vector<vector<int>>(10, vector<int>(10, 0));
+
+    bool setShip(int row, int col) {
+		// Usuń statek
+        if (this->table[row][col] == 1) {
+            this->placed = this->placed - 1;
+            this->table[row][col] = 0;
+            return true;
+        }
+
+		// Dodaj statek
+        if (this->placed < this->maxShips) {
+            this->placed = this->placed + 1;
+            this->table[row][col] = 1;
+            return true;
+        }
+
+        return false;
+    }
+
+    void checkShip(int row, int col) {
+        vector<pair<int, int>> shipCells;
+        shipCells.push_back(make_pair(row, col));
+
+        // Sprawdź poziomo
+        int c = col - 1;
+        while (c >= 0 && (this->table[row][c] == 1 || this->table[row][c] == 2 || this->table[row][c] == 3)) {
+            shipCells.push_back(make_pair(row, c));
+            c--;
+        }
+        c = col + 1;
+        while (c < 10 && (this->table[row][c] == 1 || this->table[row][c] == 2 || this->table[row][c] == 3)) {
+            shipCells.push_back(make_pair(row, c));
+            c++;
+        }
+
+        // Sprawdź pionowo
+        if (shipCells.size() == 1) {
+            int r = row - 1;
+            while (r >= 0 && (this->table[r][col] == 1 || this->table[r][col] == 2 || this->table[r][col] == 3)) {
+                shipCells.push_back(make_pair(r, col));
+                r--;
+            }
+            r = row + 1;
+            while (r < 10 && (this->table[r][col] == 1 || this->table[r][col] == 2 || this->table[r][col] == 3)) {
+                shipCells.push_back(make_pair(r, col));
+                r++;
+            }
+        }
+
+        // Jeżeli 1 nie jest zatopiony
+        for (size_t i = 0; i < shipCells.size(); ++i) {
+            int r = shipCells[i].first;
+            int c2 = shipCells[i].second;
+            if (this->table[r][c2] == 1) {
+                return;
+            }
+        }
+
+        // 2 lub 3 zatopiony
+        for (size_t i = 0; i < shipCells.size(); ++i) {
+            int r = shipCells[i].first;
+            int c2 = shipCells[i].second;
+            this->table[r][c2] = 3;
+        }
+    }
 public:
     void handlePlayerShot(int row, int col) {
+		// Sprawdz czy juz strzelano
         if (this->shot[row][col] == 1) {
             cout << "Już strzelałeś w to pole!" << "\n";
             return;
         }
 
+		// Sprawdz czy trafiono
         if (this->table[row][col] == 1) {
             cout << "TRAFIONY!" << "\n";
             this->shot[row][col] = 1;
-            this->table[row][col] = 3;
+            this->table[row][col] = 2;
+            checkShip(row, col);
         } else {
             cout << "PUDŁO!" << "\n";
             this->shot[row][col] = 1;
@@ -53,33 +122,52 @@ public:
         }
     }
 
+	// Pobierz wartość pola
     int getValue(int row, int col) {
         return this->table[row][col];
     }
 
     bool placeShip(int row, int col) {
-        if (this->table[row][col] == 1) {
-            this->placed = this->placed - 1;
-            this->table[row][col] = 0;
-            return true;
+        for (int r = -1; r <= 1; r+=2) {
+            for (int c = -1; c <= 1; c+=2) {
+				// Sprawdź czy nie wychodzi poza
+                if (row + r > 9 || row + r < 0) {
+                    continue;
+                } else if (col + c > 9 || col + c < 0) {
+                    continue;
+                }
+
+				// Sprawdź zajęcie sąsiedniego pola
+				bool result = getValue(row + r, col + c);
+				cout << "\nChecking: " << (row + r) << ", " << (col + c) << " = ";
+                cout << result;
+                if (result == 1) {
+					return false;
+                }
+            }
         }
 
-        if (this->placed < this->maxShips) {
-            this->placed = this->placed + 1;
-            this->table[row][col] = 1;
-            return true;
-        }
-        return false;
-    }
+		return setShip(row, col);
+	}
 
+    // Ilość statków
     int getShipsAmount() {
         return this->placed;
     }
 
+	// Maksymalna ilość statków
     int getMaxShipsAmount() {
         return this->maxShips;
     }
 };
+
+/*
+ * 0 - puste
+ * 1 - statek
+ * 2 - trafiony statek
+ * 3 - zatopiony statek
+ * 4 - pudlo
+ */
 
 sf::Color getOutlineColor(int val) {
     if (val == 4) return sf::Color::White;
@@ -90,29 +178,33 @@ sf::Color getOutlineColor(int val) {
 }
 
 sf::Color getFillColor(int val) {
-    if (val == 4) return sf::Color::Red;
-    if (val == 3) return sf::Color::Red;
-    if (val == 2) return sf::Color::Yellow;
+    if (val == 4) return sf::Color(255, 0, 0, 120);
+    if (val == 3) return sf::Color(255, 0, 0);
+    if (val == 2) return sf::Color(255, 162, 0, 220);
     if (val == 1) return sf::Color::Transparent;
-    return sf::Color::Transparent;
+    return sf::Color::Transparent; 
 }
 
+// Sprawdza czy mysz jest nad planszą przeciwnika
 bool isMouseOverEnemyBoard(int mouseX, int mouseY) {
     return (mouseX >= 30 && mouseX <= 30 + 10 * 40 &&
         mouseY >= 80 && mouseY <= 80 + 10 * 40);
 }
 
+// Pobiera pozycję na planszy przeciwnika
 pair<int, int> getEnemyBoardPosition(int mouseX, int mouseY) {
     int col = (mouseX - 30) / 40;
     int row = (mouseY - 80) / 40;
     return make_pair(col, row);
 }
 
+// Sprawdza czy mysz jest nad planszą lokalną
 bool isMouseOverLocalBoard(int mouseX, int mouseY) {
     return (mouseX >= 30 + 485 && mouseX <= 30 + 485 + 10 * 40 &&
         mouseY >= 80 && mouseY <= 80 + 10 * 40);
 }
 
+// Pobiera pozycję na planszy lokalnej
 pair<int, int> getLocalBoardPosition(int mouseX, int mouseY) {
     int col = (mouseX - (30 + 485)) / 40;
     int row = (mouseY - 80) / 40;
