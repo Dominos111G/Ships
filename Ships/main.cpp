@@ -28,7 +28,11 @@
 
 using namespace std;
 
+// USTAWIENIA
 auto now = chrono::system_clock::now();
+bool UdebugMode = false;
+bool UshowBoard = false;
+bool UshowEnemyBoard = false;
 
 class player {
 private:
@@ -139,8 +143,9 @@ public:
 
 				// Sprawdź zajęcie sąsiedniego pola
 				bool result = getValue(row + r, col + c);
-				cout << "\nChecking: " << (row + r) << ", " << (col + c) << " = ";
-                cout << result;
+
+                if (UdebugMode) cout << "Checking: " << (row + r) << ", " << (col + c) << " = " << result << "\n";
+
                 if (result == 1) {
 					return false;
                 }
@@ -226,11 +231,6 @@ int main() {
     bool readyEnemy = false;
     bool started = false;
 
-    // USTAWIENIA
-	bool UdebugMode = false;
-    bool UshowBoard = false;
-	bool UshowEnemyBoard = false;
-
 	// ŁĄCZENIE SIECIOWE
     bool isHost = false;
     sf::TcpListener listener;
@@ -240,15 +240,16 @@ int main() {
 
     while (true) {
         cout << "Host (h) czy Join (j)? ";
-        char opt; cin >> opt;
-	    opt = tolower(opt);
+
+        string input; cin >> input;
+	    char opt = tolower(input[0]);
 
         if (opt == 'h') {
             isHost = true;
 
-            cout << "Nasluchuje na porcie 53000..." << "\n";
+            cout << "Oczekiwanie na gracza... (Port 53000)" << "\n";
             if (listener.listen(53000) != sf::Socket::Done) {
-                cout << "Nie mozna nasluchiwac!" << "\n";
+                cout << "Nie mozna nasłuchiwać na porcie 53000!" << "\n";
                 return -1;
             }
 
@@ -274,7 +275,8 @@ int main() {
                     cout << "\n";
                 }
             }
-        } else {
+
+        } else if (opt == 'j') {
             cout << "Podaj IP hosta: ";
             string ip; cin >> ip;
             otherIp = ip;
@@ -289,12 +291,15 @@ int main() {
             }
 
             break;
+
+        } else {
+			cout << "Nieprawidłowa opcja!" << "\n\n";
+            continue;
         }
     }
 
     if (isHost) {
         bool connected = false;
-        cout << "Oczekiwanie na przeciwnika..." << "\n";
 
         while (true) {
             if (socket.getRemoteAddress() == sf::IpAddress::None) {
@@ -327,7 +332,7 @@ int main() {
 
                         if (ready && readyEnemy) {
                             started = true;
-                            cout << "Started!";
+                            cout << "Started!" << "\n";
 
                             sf::Packet out; out << string("START") << true;
                             socket.send(out);
@@ -404,7 +409,7 @@ int main() {
                                 if (started) {
                                     enemyTab.handlePlayerShot(row, col);
 
-                                    if (UdebugMode) cout << "SHOT SENDED!!!";
+                                    if (UdebugMode) cout << "SHOT SENDED!!!" << "\n";
 
                                     sf::Packet out; out << string("SHOT") << col << row;
                                     if (socket.getRemoteAddress() != sf::IpAddress::None) socket.send(out);
@@ -439,7 +444,7 @@ int main() {
 
                                 if (ready && readyEnemy) {
                                     started = true;
-                                    cout << "Start!";
+                                    cout << "Start!" << "\n";
 
                                     sf::Packet out; out << string("START");
                                     socket.send(out);
@@ -624,7 +629,7 @@ int main() {
                                 if (started) {
                                     enemyTab.handlePlayerShot(row, col);
 
-                                    if (UdebugMode) cout << "SHOT SENDED!!!";
+                                    if (UdebugMode) cout << "SHOT SENDED!!!" << "\n";
                                     
                                     sf::Packet out; out << string("SHOT") << col << row;
                                     socket.send(out);
@@ -659,7 +664,7 @@ int main() {
 
                                 if (ready && readyEnemy) {
                                     started = true;
-                                    cout << "Start!";
+                                    cout << "Start!" << "\n";
 
                                     sf::Packet out; out << string("START");
                                     socket.send(out);
