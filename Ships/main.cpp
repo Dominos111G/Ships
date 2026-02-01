@@ -15,12 +15,8 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include <iostream>
-#include <fstream>
 #include <string>
-#include <random>
 #include <vector>
-#include <chrono>
-#include <thread>
 
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
@@ -29,7 +25,6 @@
 using namespace std;
 
 // USTAWIENIA
-auto now = chrono::system_clock::now();
 bool UdebugMode = false;
 bool UshowBoard = false;
 bool UshowEnemyBoard = false;
@@ -37,7 +32,7 @@ bool UshowEnemyBoard = false;
 class player {
 private:
     int placed = 0;
-    int maxShips = 20;
+    int maxShips = 2;
     vector<vector<int>> table = vector<vector<int>>(10, vector<int>(10, 0));
     vector<vector<int>> shot = vector<vector<int>>(10, vector<int>(10, 0));
 
@@ -106,24 +101,26 @@ private:
         }
     }
 public:
-    void handlePlayerShot(int row, int col) {
+    bool handlePlayerShot(int row, int col) {
 		// Sprawdz czy juz strzelano
         if (this->shot[row][col] == 1) {
-            cout << "Już strzelałeś w to pole!" << "\n";
-            return;
+            if (UdebugMode) cout << "Już strzelałeś w to pole!" << "\n";
+            return false;
         }
 
 		// Sprawdz czy trafiono
         if (this->table[row][col] == 1) {
-            cout << "TRAFIONY!" << "\n";
+            if (UdebugMode) cout << "TRAFIONY!" << "\n";
             this->shot[row][col] = 1;
             this->table[row][col] = 2;
             checkShip(row, col);
         } else {
-            cout << "PUDŁO!" << "\n";
+            if (UdebugMode) cout << "PUDŁO!" << "\n";
             this->shot[row][col] = 1;
             this->table[row][col] = 4;
         }
+
+        return true;
     }
 
 	// Pobierz wartość pola
@@ -217,6 +214,7 @@ pair<int, int> getLocalBoardPosition(int mouseX, int mouseY) {
 }
 
 int main() {
+    srand(time(0));
     sf::Font font;
     if (!font.loadFromFile("Bitter.ttf"))
     {
@@ -230,6 +228,7 @@ int main() {
     bool ready = false;
     bool readyEnemy = false;
     bool started = false;
+    bool turn = false;
 
 	// ŁĄCZENIE SIECIOWE
     bool isHost = false;
@@ -258,7 +257,12 @@ int main() {
 
         } else if (opt == 'z') {
             while (opt == 'z') {
-                cout << "\nUsetawienia\n1. debugMode = " << UdebugMode << "\n2. showBoard = " << UshowBoard << "\n3. showEnemyBoard = " << UshowEnemyBoard << "\n4. Wyjście\nWyb: ";
+                cout << "\nUstawienia"
+                     << "\n1.debugMode = " << UdebugMode 
+                     << "\n2. showBoard = " << UshowBoard 
+                     << "\n3. showEnemyBoard = " << UshowEnemyBoard 
+                     << "\n4. Wyjście"
+                     << "\nWyb: ";
 				char Uopt; cin >> Uopt;
                 switch (Uopt) {
                 case '1':
@@ -318,6 +322,15 @@ int main() {
             return 0;
         }
 
+        turn = rand() % 2 == 0; // Losowanie kto zaczyna
+        if (!turn) {
+            if (UdebugMode) cout << "Przeciwnik zaczyna!" << "\n";
+            sf::Packet out; out << string("TURN");
+            socket.send(out);
+        } else {
+            if (UdebugMode) cout << "Ty zaczynasz!" << "\n";
+        }
+
         sf::RenderWindow window(sf::VideoMode(950, 600), "Ships (network host)");
 
         while (window.isOpen()) {
@@ -332,30 +345,27 @@ int main() {
 
                         if (ready && readyEnemy) {
                             started = true;
-                            cout << "Started!" << "\n";
+                            if (UdebugMode) cout << "Started!" << "\n";
 
                             sf::Packet out; out << string("START") << true;
                             socket.send(out);
-                        }
-                        else {
+                        } else {
                             sf::Packet out; out << string("RESULT") << true;
                             socket.send(out);
                         }
 
-                    }
-                    else if (cmd == "NOTREADY") {
+                    } else if (cmd == "NOTREADY") {
                         readyEnemy = false;
 
                         sf::Packet out; out << string("RESULT") << true;
                         socket.send(out);
 
-                    }
-                    else if (cmd == "START") {
+                    } else if (cmd == "START") {
                         readyEnemy = true;
                         ready = true;
                         started = true;
-                    }
-                    else if (cmd == "PLACE") {
+
+                    } else if (cmd == "PLACE") {
                         int col, row; packet >> col >> row;
                         if (UdebugMode) cout << "Otrzymano: " << col << "," << row << "\n";
 
@@ -366,12 +376,17 @@ int main() {
 
                     } else if (cmd == "SHOT") {
                         int col, row; packet >> col >> row;
-                        if (UdebugMode) cout << "Otrzymano strzal: " << col << "," << row << "\n";
+                        turn = !turn;
+                        if (UdebugMode) cout << "Otrzymano strzał: " << col << "," << row << "\n";
 
                         localTab.handlePlayerShot(row, col);
 
                         sf::Packet out; out << string("RESULT") << true;
                         socket.send(out);
+
+                    } else if (cmd == "TURN") {
+                        if (UdebugMode) cout << "OTRZYMANO DANE RUCHU";
+                        turn = true;
 
                     } else if (cmd == "DISCONECTED") {
                         cout << "Player disconected!" << "\n";
@@ -406,13 +421,16 @@ int main() {
                             int row = pos.second;
 
                             if (col >= 0 && col < 10 && row >= 0 && row < 10) {
-                                if (started) {
-                                    enemyTab.handlePlayerShot(row, col);
+                                if (started && turn) {
+                                    bool result = enemyTab.handlePlayerShot(row, col);
 
-                                    if (UdebugMode) cout << "SHOT SENDED!!!" << "\n";
+                                    if (result) {
+                                        turn = !turn;
+                                        if (UdebugMode) cout << "SHOT SENDED!!!" << "\n";
 
-                                    sf::Packet out; out << string("SHOT") << col << row;
-                                    if (socket.getRemoteAddress() != sf::IpAddress::None) socket.send(out);
+                                        sf::Packet out; out << string("SHOT") << col << row;
+                                        if (socket.getRemoteAddress() != sf::IpAddress::None) socket.send(out);
+                                    }
                                 }
                             }
                         }
@@ -437,14 +455,14 @@ int main() {
                         if (ready == false) {
                             if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
                                 ready = true;
-                                cout << "Gotowy!" << "\n";
+                                if (UdebugMode) cout << "Gotowy!" << "\n";
 
                                 sf::Packet out; out << string("READY") << true;
                                 socket.send(out);
 
                                 if (ready && readyEnemy) {
                                     started = true;
-                                    cout << "Start!" << "\n";
+                                    if (UdebugMode) cout << "Start!" << "\n";
 
                                     sf::Packet out; out << string("START");
                                     socket.send(out);
@@ -452,7 +470,7 @@ int main() {
                             }
                         } else if (ready && !started) {
                             ready = false;
-                            cout << "Niegotowy!" << "\n";
+                            if (UdebugMode) cout << "Niegotowy!" << "\n";
 
                             sf::Packet out; out << string("NOTREADY") << true;
                             socket.send(out);
@@ -529,10 +547,48 @@ int main() {
                 }
             }
 
-            text.setPosition(50.f, 520.f);
+            text.setPosition(515.f, 510.f);
             text.setString("Kliknij na plansze aby ustawic statek. \n" + to_string(localTab.getShipsAmount()) + " / " + to_string(localTab.getMaxShipsAmount()));
-            text.setCharacterSize(20);
+            text.setCharacterSize(19);
             window.draw(text);
+
+            if (!started) {
+                if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
+                    // Status lokoalny
+                    text.setPosition(30.f, 510.f);
+                    text.setCharacterSize(19);
+                    if (ready) {
+                        text.setString("[G] - Status: Gotowy");
+                    } else {
+                        text.setString("[G] - Status: Niegotowy");
+                    }
+                    window.draw(text);
+
+                    // Status przeciwnika
+                    text.setPosition(30.f, 535.f);
+                    text.setCharacterSize(19);
+                    if (readyEnemy) {
+                        text.setString("Status przeciwnika: Gotowy");
+                    } else {
+                        text.setString("Status przeciwnika: Niegotowy");
+                    }
+                    window.draw(text);
+                } else {
+                    text.setPosition(30.f, 510.f);
+                    text.setString("Ustaw wszystkie statki!");
+                    text.setCharacterSize(19);
+                    window.draw(text);
+                }
+            } else {
+                text.setPosition(30.f, 510.f);
+                text.setCharacterSize(19);
+                if (turn) {
+                    text.setString(L"Gra rozpoczęta!\nTwój ruch");
+                } else {
+                    text.setString(L"Gra rozpoczęta!\nOczekiwanie na ruch przeciwnika");
+                }
+                window.draw(text);
+            }
 
             window.display();
         }
@@ -551,7 +607,7 @@ int main() {
 
                         if (ready && readyEnemy) {
                             started = true;
-                            cout << "Started!";
+                            if (UdebugMode) cout << "Started!";
 
                             sf::Packet out; out << string("START") << true;
                             socket.send(out);
@@ -560,20 +616,18 @@ int main() {
                             socket.send(out);
                         }
 
-                    }
-                    else if (cmd == "NOTREADY") {
+                    } else if (cmd == "NOTREADY") {
                         readyEnemy = false;
                         
                         sf::Packet out; out << string("RESULT") << true;
                         socket.send(out);
 
-                    }
-                    else if (cmd == "START") {
+                    } else if (cmd == "START") {
                         readyEnemy = true;
                         ready = true;
                         started = true;
-                    }
-                    else if (cmd == "PLACE") {
+
+                    } else if (cmd == "PLACE") {
                         int col, row; packet >> col >> row;
                         if (UdebugMode) cout << "Otrzymano: " << col << "," << row << "\n";
 
@@ -582,18 +636,21 @@ int main() {
                         sf::Packet out; out << string("RESULT") << true;
                         socket.send(out);
 
-                    }
-                    else if (cmd == "SHOT") {
+                    } else if (cmd == "SHOT") {
                         int col, row; packet >> col >> row;
-                        if (UdebugMode) cout << "Otrzymano strzal: " << col << "," << row << "\n";
+                        turn = !turn;
+                        if (UdebugMode) cout << "Otrzymano strzał: " << col << "," << row << "\n";
 
                         localTab.handlePlayerShot(row, col);
 
                         sf::Packet out; out << string("RESULT") << true;
                         socket.send(out);
 
-                    }
-                    else if (cmd == "DISCONECTED") {
+                    } else if (cmd == "TURN") {
+                        if (UdebugMode) cout << "OTRZYMANO DANE RUCHU";
+						turn = true;
+
+                    } else if (cmd == "DISCONECTED") {
                         cout << "Player disconected!" << "\n";
                         return 0;
 
@@ -626,13 +683,16 @@ int main() {
                             int row = pos.second;
 
                             if (col >= 0 && col < 10 && row >= 0 && row < 10) {
-                                if (started) {
-                                    enemyTab.handlePlayerShot(row, col);
+                                if (started && turn) {
+                                    bool result = enemyTab.handlePlayerShot(row, col);
 
-                                    if (UdebugMode) cout << "SHOT SENDED!!!" << "\n";
-                                    
-                                    sf::Packet out; out << string("SHOT") << col << row;
-                                    socket.send(out);
+                                    if (result) {
+										turn = !turn;
+                                        if (UdebugMode) cout << "SHOT SENDED!!!" << "\n";
+
+                                        sf::Packet out; out << string("SHOT") << col << row;
+                                        if (socket.getRemoteAddress() != sf::IpAddress::None) socket.send(out);
+                                    }
                                 }
                             }
                         }
@@ -657,14 +717,14 @@ int main() {
                         if (ready == false) {
                             if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
                                 ready = true;
-                                cout << "Gotowy!" << "\n";
+                                if (UdebugMode) cout << "Gotowy!" << "\n";
 
                                 sf::Packet out; out << string("READY") << true;
                                 socket.send(out);
 
                                 if (ready && readyEnemy) {
                                     started = true;
-                                    cout << "Start!" << "\n";
+                                    if (UdebugMode) cout << "Start!" << "\n";
 
                                     sf::Packet out; out << string("START");
                                     socket.send(out);
@@ -673,7 +733,7 @@ int main() {
                         }
                         else if (ready && !started) {
                             ready = false;
-                            cout << "Niegotowy!" << "\n";
+                            if (UdebugMode) cout << "Niegotowy!" << "\n";
 
                             sf::Packet out; out << string("NOTREADY") << true;
                             socket.send(out);
@@ -708,8 +768,8 @@ int main() {
 
             sf::Text text;
             text.setFont(font);
-            text.setPosition(100.f, 15.f);
-            text.setString("ENEMY BOARD");
+            text.setPosition(50.f, 15.f);
+            text.setString("Plansza Przeciwnika");
             text.setCharacterSize(34);
             text.setFillColor(sf::Color::White);
             window.draw(text);
@@ -732,8 +792,8 @@ int main() {
                 }
             }
 
-            text.setPosition(600.f, 15.f);
-            text.setString("YOUR SHIPS");
+            text.setPosition(580.f, 15.f);
+            text.setString("Twoja plansza");
             text.setCharacterSize(34);
             window.draw(text);
 
@@ -750,10 +810,48 @@ int main() {
                 }
             }
 
-            text.setPosition(50.f, 520.f);
+            text.setPosition(515.f, 510.f);
             text.setString("Kliknij na plansze aby ustawic statek. \n" + to_string(localTab.getShipsAmount()) + " / " + to_string(localTab.getMaxShipsAmount()));
-            text.setCharacterSize(20);
+            text.setCharacterSize(19);
             window.draw(text);
+
+            if (!started) {
+                if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
+					// Status lokoalny
+                    text.setPosition(30.f, 510.f);
+                    text.setCharacterSize(19);
+                    if (ready) {
+                        text.setString("[G] - Status: Gotowy");
+					} else {
+                        text.setString("[G] - Status: Niegotowy");
+                    }
+                    window.draw(text);
+
+					// Status przeciwnika
+                    text.setPosition(30.f, 535.f);
+                    text.setCharacterSize(19);
+                    if (readyEnemy) {
+                        text.setString("Status przeciwnika: Gotowy");
+                    } else {
+                        text.setString("Status przeciwnika: Niegotowy");
+                    }
+                    window.draw(text);
+                } else {
+                    text.setPosition(30.f, 510.f);
+                    text.setString("Ustaw wszystkie statki!");
+                    text.setCharacterSize(19);
+                    window.draw(text);
+                }
+            } else {
+                text.setPosition(30.f, 510.f);
+                text.setCharacterSize(19);
+                if (turn) {
+                    text.setString(L"Gra rozpoczęta!\nTwój ruch");
+                } else {
+                    text.setString(L"Gra rozpoczęta!\nOczekiwanie na ruch przeciwnika");
+                }
+                window.draw(text);
+			}
 
             window.display();
         }
