@@ -3,7 +3,7 @@
  * Autor       : Dominik Szczerbal
  * Klasa       : 3 TIP
  * Data        : 2025-10-25
- * Wersja      : 0.8
+ * Wersja      : 0.9
  * Opis        : Gra w statki oline dla dwóch graczy z wykorzystaniem SFML
  * Zależności  : C++98 lub nowszy
  * Kompilacja  : g++ main.cpp -o main -lsfml-graphics -lsfml-window 
@@ -32,7 +32,7 @@ bool UshowEnemyBoard = false;
 class player {
 private:
     int placed = 0;
-    int maxShips = 2;
+    int maxShips = 20;
     vector<vector<int>> table = vector<vector<int>>(10, vector<int>(10, 0));
     vector<vector<int>> shot = vector<vector<int>>(10, vector<int>(10, 0));
 
