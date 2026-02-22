@@ -3,7 +3,7 @@
  * Autor       : Dominik Szczerbal
  * Klasa       : 3 TIP
  * Data        : 2025-10-25
- * Wersja      : 0.9
+ * Wersja      : 1.0
  * Opis        : Gra w statki oline dla dwóch graczy z wykorzystaniem SFML
  * Zależności  : C++98 lub nowszy
  * Kompilacja  : g++ main.cpp -o main -lsfml-graphics -lsfml-window 
@@ -28,11 +28,20 @@ using namespace std;
 bool UdebugMode = false;
 bool UshowBoard = false;
 bool UshowEnemyBoard = false;
+int maxShipsAmount = 20;
+vector<string> alphabet = { "A","B","C","D","E","F","G","H","I","J" };
+
+// ZMIENNE GRY
+bool ready = false;
+bool readyEnemy = false;
+bool started = false;
+bool turn = false;
 
 class player {
 private:
     int placed = 0;
-    int maxShips = 20;
+	int shipsAmount = maxShipsAmount;
+    int maxShips = maxShipsAmount;
     vector<vector<int>> table = vector<vector<int>>(10, vector<int>(10, 0));
     vector<vector<int>> shot = vector<vector<int>>(10, vector<int>(10, 0));
 
@@ -113,6 +122,7 @@ public:
             if (UdebugMode) cout << "TRAFIONY!" << "\n";
             this->shot[row][col] = 1;
             this->table[row][col] = 2;
+            this->shipsAmount -= 1;
             checkShip(row, col);
         } else {
             if (UdebugMode) cout << "PUDŁO!" << "\n";
@@ -161,6 +171,10 @@ public:
     int getMaxShipsAmount() {
         return this->maxShips;
     }
+
+    int getShipsLeft() {
+        return this->shipsAmount;
+	}
 };
 
 /*
@@ -187,34 +201,226 @@ sf::Color getFillColor(int val) {
     return sf::Color::Transparent; 
 }
 
+int cell = 34;
+// x = i * 34 + 50 = 84 -- y = i * 34 + 100 = 134
+const int x0p = 50 + 34;
+const int y0p = 100 + 34;
+const int x0e = x0p + 440;
+const int y0e = y0p;
+
 // Sprawdza czy mysz jest nad planszą przeciwnika
 bool isMouseOverEnemyBoard(int mouseX, int mouseY) {
-    return (mouseX >= 30 && mouseX <= 30 + 10 * 40 &&
-        mouseY >= 80 && mouseY <= 80 + 10 * 40);
+    return (mouseX >= x0e && mouseX < x0e + 10 * cell &&
+        mouseY >= y0e && mouseY < y0e + 10 * cell);
 }
 
 // Pobiera pozycję na planszy przeciwnika
 pair<int, int> getEnemyBoardPosition(int mouseX, int mouseY) {
-    int col = (mouseX - 30) / 40;
-    int row = (mouseY - 80) / 40;
-    return make_pair(col, row);
+    int row = (mouseY - y0e) / cell; 
+    int col = (mouseX - x0e) / cell;
+
+    if (row < 0) row = 0;
+    if (row > 9) row = 9;
+    if (col < 0) col = 0;
+    if (col > 9) col = 9;
+
+    return make_pair(row, col);
 }
 
 // Sprawdza czy mysz jest nad planszą lokalną
 bool isMouseOverLocalBoard(int mouseX, int mouseY) {
-    return (mouseX >= 30 + 485 && mouseX <= 30 + 485 + 10 * 40 &&
-        mouseY >= 80 && mouseY <= 80 + 10 * 40);
+    return (mouseX >= x0p && mouseX < x0p + 10 * cell &&
+        mouseY >= y0p && mouseY < y0p + 10 * cell);
 }
 
 // Pobiera pozycję na planszy lokalnej
 pair<int, int> getLocalBoardPosition(int mouseX, int mouseY) {
-    int col = (mouseX - (30 + 485)) / 40;
-    int row = (mouseY - 80) / 40;
-    return make_pair(col, row);
+    int row = (mouseY - y0p) / cell;
+    int col = (mouseX - x0p) / cell;
+
+    if (row < 0) row = 0;
+    if (row > 9) row = 9;
+    if (col < 0) col = 0;
+    if (col > 9) col = 9;
+
+    return make_pair(row, col);
+}
+
+// Środek tekstu w kwadracie
+void centerTextInSquare(sf::Text& text, const sf::FloatRect& squareBounds) {
+    sf::FloatRect textBounds = text.getLocalBounds();
+    text.setPosition(
+        squareBounds.left + (squareBounds.width / 2.f) - (textBounds.width / 2.f),
+        squareBounds.top + (squareBounds.height / 2.f) - (textBounds.height / 2.f)
+    );
+}
+
+// Tworzenie planszy
+void createBoards(sf::RenderWindow& window, sf::Text text, player localTab, player enemyTab) {
+    text.setPosition(120.f, 25.f);
+    text.setString("Twoja plansza");
+    text.setFillColor(sf::Color::White);
+    text.setCharacterSize(34);
+    window.draw(text);
+
+    for (int i = 0; i < 11; i++) {
+        for (int j = 0; j < 11; j++) {
+            if (i == 0) {
+                if (j == 0) continue;
+
+                text.setString(alphabet[j - 1]);
+                text.setCharacterSize(19);
+
+                sf::FloatRect letterSquare(j * 34.f + 50.f, 70.f + 16.f, 30.f, 30.f);
+                centerTextInSquare(text, letterSquare);
+                window.draw(text);
+
+            } else if (j == 0) {
+                text.setString(to_string(i));
+                text.setCharacterSize(19);
+
+                sf::FloatRect numberSquare(30.f + 16.f, i * 34.f + 100.f, 30.f, 30.f);
+                centerTextInSquare(text, numberSquare);
+                window.draw(text);
+
+            } else {
+                int cellCol = i - 1;
+                int cellRow = j - 1;
+
+                sf::RectangleShape square({ 30.f, 30.f });
+                square.setPosition(i * 34.f + 50.f, j * 34.f + 100.f);
+                square.setOutlineThickness(2.f);
+                square.setOutlineColor(getOutlineColor(localTab.getValue(cellRow, cellCol)));
+                square.setFillColor(getFillColor(localTab.getValue(cellRow, cellCol)));
+
+                window.draw(square);
+            }
+        }
+    }
+
+    text.setPosition(510.f, 25.f);
+    text.setString("Plansza Przeciwnika");
+    text.setCharacterSize(34);
+    text.setFillColor(sf::Color::White);
+    window.draw(text);
+
+    for (int i = 0; i < 11; i++) {
+        for (int j = 0; j < 11; j++) {
+            if (i == 0) {
+                if (j == 0) continue;
+
+                text.setString(alphabet[j - 1]);
+                text.setCharacterSize(19);
+
+                sf::FloatRect letterSquare(j * 34.f + 50.f + 440.f, 70.f + 16.f, 30.f, 30.f);
+                centerTextInSquare(text, letterSquare);
+                window.draw(text);
+
+            } else if (j == 0) {
+                text.setString(to_string(i));
+                text.setCharacterSize(19);
+
+                sf::FloatRect numberSquare(30.f + 440.f + 16.f, i * 34.f + 100.f, 30.f, 30.f);
+                centerTextInSquare(text, numberSquare);
+                window.draw(text);
+
+            } else {
+                int cellCol = i - 1;
+                int cellRow = j - 1;
+
+                sf::RectangleShape square({ 30.f, 30.f });
+                square.setPosition(i * 34.f + 50.f + 440.f, j * 34.f + 100.f);
+                square.setOutlineThickness(2.f);
+
+                if (enemyTab.getValue(cellRow, cellCol) != 1) {
+                    square.setOutlineColor(getOutlineColor(enemyTab.getValue(cellRow, cellCol)));
+                    square.setFillColor(getFillColor(enemyTab.getValue(cellRow, cellCol)));
+                }
+                else {
+                    square.setOutlineColor(sf::Color::White);
+                    square.setFillColor(sf::Color::Transparent);
+                }
+                window.draw(square);
+            }
+        }
+    }
+}
+
+void createBottomInfo(sf::RenderWindow& window, sf::Text text, player localTab, player enemyTab) {
+    if (!started) {
+        if (!ready) {
+            text.setPosition(50.f, 500.f);
+            text.setString("Kliknij na plansze aby ustawic statek.");
+            text.setFillColor(sf::Color::White);
+            text.setCharacterSize(19);
+            window.draw(text);
+        }
+    } else {
+        text.setPosition(490.f, 500.f);
+        text.setString("Pozostalo " + to_string(enemyTab.getShipsLeft()) + " wrogich jednostek.");
+        text.setCharacterSize(19);
+        text.setFillColor(sf::Color::White);
+        window.draw(text);
+
+        if (turn) {
+            text.setPosition(490.f, 530.f);
+            text.setString("Kliknij na plansze przeciwnika aby strzelic.");
+            text.setCharacterSize(19);
+            text.setFillColor(sf::Color::White);
+            window.draw(text);
+        }
+
+    }
+
+    if (!started) {
+        if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
+            // Status lokoalny
+            text.setPosition(490.f, 500.f);
+            text.setCharacterSize(19);
+            if (ready) {
+                text.setString("[G] - Status: Gotowy");
+                text.setFillColor(sf::Color::Green);
+            } else {
+                text.setString("[G] - Status: Niegotowy");
+                text.setFillColor(sf::Color::Red);
+            }
+            window.draw(text);
+
+            // Status przeciwnika
+            text.setPosition(490.f, 530.f);
+            text.setCharacterSize(19);
+            if (readyEnemy) {
+                text.setString("Status przeciwnika: Gotowy");
+                text.setFillColor(sf::Color::Green);
+            } else {
+                text.setString("Status przeciwnika: Niegotowy");
+                text.setFillColor(sf::Color::Red);
+            }
+            window.draw(text);
+        } else {
+            text.setPosition(490.f, 500.f);
+            text.setString("Postaw jeszcze " + to_string(localTab.getMaxShipsAmount() - localTab.getShipsAmount()) + " jednostek.");
+            text.setFillColor(sf::Color::Red);
+            text.setCharacterSize(20);
+            window.draw(text);
+        }
+    } else {
+        text.setPosition(50.f, 500.f);
+        text.setCharacterSize(19);
+        if (turn) {
+            text.setString(L"Gra rozpoczęta!\nTwój ruch");
+            text.setFillColor(sf::Color::Yellow);
+        } else {
+            text.setString(L"Gra rozpoczęta!\nOczekiwanie na ruch przeciwnika");
+            text.setFillColor(sf::Color::White);
+        }
+        window.draw(text);
+    }
 }
 
 int main() {
     srand(time(0));
+
     sf::Font font;
     if (!font.loadFromFile("Bitter.ttf"))
     {
@@ -222,13 +428,9 @@ int main() {
         return -1;
     }
 
-    // ZMIENNE GRY
+    // Plansze
     player localTab;
     player enemyTab;
-    bool ready = false;
-    bool readyEnemy = false;
-    bool started = false;
-    bool turn = false;
 
 	// ŁĄCZENIE SIECIOWE
     bool isHost = false;
@@ -417,10 +619,10 @@ int main() {
 
                         if (isMouseOverEnemyBoard(mouseX, mouseY)) {
                             pair<int, int> pos = getEnemyBoardPosition(mouseX, mouseY);
-                            int col = pos.first;
-                            int row = pos.second;
+                            int row = pos.first;
+                            int col = pos.second;
 
-                            if (col >= 0 && col < 10 && row >= 0 && row < 10) {
+                            if (row >= 0 && row < 10 && col >= 0 && col < 10) {
                                 if (started && turn) {
                                     bool result = enemyTab.handlePlayerShot(row, col);
 
@@ -434,12 +636,13 @@ int main() {
                                 }
                             }
                         }
+
                         if (isMouseOverLocalBoard(mouseX, mouseY)) {
                             pair<int, int> pos = getLocalBoardPosition(mouseX, mouseY);
-                            int col = pos.first;
-                            int row = pos.second;
+                            int row = pos.first;
+                            int col = pos.second;
 
-                            if (col >= 0 && col < 10 && row >= 0 && row < 10) {
+                            if (row >= 0 && row < 10 && col >= 0 && col < 10) {
                                 if (!started && !ready) {
                                     localTab.placeShip(row, col);
                                     sf::Packet out; out << string("PLACE") << col << row;
@@ -505,90 +708,8 @@ int main() {
 
             sf::Text text;
             text.setFont(font);
-            text.setPosition(100.f, 15.f);
-            text.setString("ENEMY BOARD");
-            text.setCharacterSize(34);
-            text.setFillColor(sf::Color::White);
-            window.draw(text);
-
-            for (int i = 0; i < 10; i++) {
-                for (int j = 0; j < 10; j++) {
-                    sf::RectangleShape square({ 30.f, 30.f });
-                    square.setPosition(i * 40.f + 30.f, j * 40.f + 80.f);
-                    square.setOutlineThickness(2.f);
-
-                    if (enemyTab.getValue(j, i) != 1) {
-                        square.setOutlineColor(getOutlineColor(enemyTab.getValue(j, i)));
-                        square.setFillColor(getFillColor(enemyTab.getValue(j, i)));
-                    }
-                    else {
-                        square.setOutlineColor(sf::Color::White);
-                        square.setFillColor(sf::Color::Transparent);
-                    }
-                    window.draw(square);
-                }
-            }
-
-            text.setPosition(600.f, 15.f);
-            text.setString("YOUR SHIPS");
-            text.setCharacterSize(34);
-            window.draw(text);
-
-            for (int i = 0; i < 10; i++) {
-                for (int j = 0; j < 10; j++) {
-                    sf::RectangleShape square({ 30.f, 30.f });
-                    square.setPosition(i * 40.f + 30.f + 485.f, j * 40.f + 80.f);
-                    square.setOutlineThickness(2.f);
-
-                    square.setOutlineColor(getOutlineColor(localTab.getValue(j, i)));
-                    square.setFillColor(getFillColor(localTab.getValue(j, i)));
-
-                    window.draw(square);
-                }
-            }
-
-            text.setPosition(515.f, 510.f);
-            text.setString("Kliknij na plansze aby ustawic statek. \n" + to_string(localTab.getShipsAmount()) + " / " + to_string(localTab.getMaxShipsAmount()));
-            text.setCharacterSize(19);
-            window.draw(text);
-
-            if (!started) {
-                if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
-                    // Status lokoalny
-                    text.setPosition(30.f, 510.f);
-                    text.setCharacterSize(19);
-                    if (ready) {
-                        text.setString("[G] - Status: Gotowy");
-                    } else {
-                        text.setString("[G] - Status: Niegotowy");
-                    }
-                    window.draw(text);
-
-                    // Status przeciwnika
-                    text.setPosition(30.f, 535.f);
-                    text.setCharacterSize(19);
-                    if (readyEnemy) {
-                        text.setString("Status przeciwnika: Gotowy");
-                    } else {
-                        text.setString("Status przeciwnika: Niegotowy");
-                    }
-                    window.draw(text);
-                } else {
-                    text.setPosition(30.f, 510.f);
-                    text.setString("Ustaw wszystkie statki!");
-                    text.setCharacterSize(19);
-                    window.draw(text);
-                }
-            } else {
-                text.setPosition(30.f, 510.f);
-                text.setCharacterSize(19);
-                if (turn) {
-                    text.setString(L"Gra rozpoczęta!\nTwój ruch");
-                } else {
-                    text.setString(L"Gra rozpoczęta!\nOczekiwanie na ruch przeciwnika");
-                }
-                window.draw(text);
-            }
+            createBoards(window, text, localTab, enemyTab);
+            createBottomInfo(window, text, localTab, enemyTab);
 
             window.display();
         }
@@ -677,17 +798,18 @@ int main() {
                         int mouseX = event.mouseButton.x;
                         int mouseY = event.mouseButton.y;
 
+
                         if (isMouseOverEnemyBoard(mouseX, mouseY)) {
                             pair<int, int> pos = getEnemyBoardPosition(mouseX, mouseY);
-                            int col = pos.first;
-                            int row = pos.second;
+                            int row = pos.first;
+                            int col = pos.second;
 
-                            if (col >= 0 && col < 10 && row >= 0 && row < 10) {
+                            if (row >= 0 && row < 10 && col >= 0 && col < 10) {
                                 if (started && turn) {
                                     bool result = enemyTab.handlePlayerShot(row, col);
 
                                     if (result) {
-										turn = !turn;
+                                        turn = !turn;
                                         if (UdebugMode) cout << "SHOT SENDED!!!" << "\n";
 
                                         sf::Packet out; out << string("SHOT") << col << row;
@@ -696,16 +818,17 @@ int main() {
                                 }
                             }
                         }
+
                         if (isMouseOverLocalBoard(mouseX, mouseY)) {
                             pair<int, int> pos = getLocalBoardPosition(mouseX, mouseY);
-                            int col = pos.first;
-                            int row = pos.second;
+                            int row = pos.first;
+                            int col = pos.second;
 
-                            if (col >= 0 && col < 10 && row >= 0 && row < 10) {
+                            if (row >= 0 && row < 10 && col >= 0 && col < 10) {
                                 if (!started && !ready) {
                                     localTab.placeShip(row, col);
                                     sf::Packet out; out << string("PLACE") << col << row;
-                                    socket.send(out);
+                                    if (socket.getRemoteAddress() != sf::IpAddress::None) socket.send(out);
                                 }
                             }
                         }
@@ -768,90 +891,8 @@ int main() {
 
             sf::Text text;
             text.setFont(font);
-            text.setPosition(50.f, 15.f);
-            text.setString("Plansza Przeciwnika");
-            text.setCharacterSize(34);
-            text.setFillColor(sf::Color::White);
-            window.draw(text);
-
-            for (int i = 0; i < 10; i++) {
-                for (int j = 0; j < 10; j++) {
-                    sf::RectangleShape square({ 30.f, 30.f });
-                    square.setPosition(i * 40.f + 30.f, j * 40.f + 80.f);
-                    square.setOutlineThickness(2.f);
-
-                    if (enemyTab.getValue(j, i) != 1) {
-                        square.setOutlineColor(getOutlineColor(enemyTab.getValue(j, i)));
-                        square.setFillColor(getFillColor(enemyTab.getValue(j, i)));
-                    }
-                    else {
-                        square.setOutlineColor(sf::Color::White);
-                        square.setFillColor(sf::Color::Transparent);
-                    }
-                    window.draw(square);
-                }
-            }
-
-            text.setPosition(580.f, 15.f);
-            text.setString("Twoja plansza");
-            text.setCharacterSize(34);
-            window.draw(text);
-
-            for (int i = 0; i < 10; i++) {
-                for (int j = 0; j < 10; j++) {
-                    sf::RectangleShape square({ 30.f, 30.f });
-                    square.setPosition(i * 40.f + 30.f + 485.f, j * 40.f + 80.f);
-                    square.setOutlineThickness(2.f);
-
-                    square.setOutlineColor(getOutlineColor(localTab.getValue(j, i)));
-                    square.setFillColor(getFillColor(localTab.getValue(j, i)));
-
-                    window.draw(square);
-                }
-            }
-
-            text.setPosition(515.f, 510.f);
-            text.setString("Kliknij na plansze aby ustawic statek. \n" + to_string(localTab.getShipsAmount()) + " / " + to_string(localTab.getMaxShipsAmount()));
-            text.setCharacterSize(19);
-            window.draw(text);
-
-            if (!started) {
-                if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
-					// Status lokoalny
-                    text.setPosition(30.f, 510.f);
-                    text.setCharacterSize(19);
-                    if (ready) {
-                        text.setString("[G] - Status: Gotowy");
-					} else {
-                        text.setString("[G] - Status: Niegotowy");
-                    }
-                    window.draw(text);
-
-					// Status przeciwnika
-                    text.setPosition(30.f, 535.f);
-                    text.setCharacterSize(19);
-                    if (readyEnemy) {
-                        text.setString("Status przeciwnika: Gotowy");
-                    } else {
-                        text.setString("Status przeciwnika: Niegotowy");
-                    }
-                    window.draw(text);
-                } else {
-                    text.setPosition(30.f, 510.f);
-                    text.setString("Ustaw wszystkie statki!");
-                    text.setCharacterSize(19);
-                    window.draw(text);
-                }
-            } else {
-                text.setPosition(30.f, 510.f);
-                text.setCharacterSize(19);
-                if (turn) {
-                    text.setString(L"Gra rozpoczęta!\nTwój ruch");
-                } else {
-                    text.setString(L"Gra rozpoczęta!\nOczekiwanie na ruch przeciwnika");
-                }
-                window.draw(text);
-			}
+            createBoards(window, text, localTab, enemyTab);
+            createBottomInfo(window, text, localTab, enemyTab);
 
             window.display();
         }
