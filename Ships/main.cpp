@@ -3,7 +3,7 @@
  * Autor       : Dominik Szczerbal
  * Klasa       : 3 TIP
  * Data        : 2025-10-25
- * Wersja      : 1.1
+ * Wersja      : 1.2
  * Opis        : Gra w statki oline dla dwóch graczy z wykorzystaniem SFML
  * Zależności  : C++98 lub nowszy
  * Kompilacja  : g++ main.cpp -o main -lsfml-graphics -lsfml-window 
