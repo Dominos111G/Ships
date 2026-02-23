@@ -3,7 +3,7 @@
  * Autor       : Dominik Szczerbal
  * Klasa       : 3 TIP
  * Data        : 2025-10-25
- * Wersja      : 1.1
+ * Wersja      : 1.2
  * Opis        : Gra w statki oline dla dwóch graczy z wykorzystaniem SFML
  * Zależności  : C++98 lub nowszy
  * Kompilacja  : g++ main.cpp -o main -lsfml-graphics -lsfml-window 
@@ -36,6 +36,8 @@ bool ready = false;
 bool readyEnemy = false;
 bool started = false;
 bool turn = false;
+bool finished = false;
+bool winner = 0;
 
 // ŁĄCZENIE SIECIOWE
 bool isHost = false;
@@ -338,13 +340,25 @@ void createBoards(sf::RenderWindow& window, sf::Text text, player localTab, play
                 square.setPosition(i * 34.f + 50.f + 440.f, j * 34.f + 100.f);
                 square.setOutlineThickness(2.f);
 
-                if (enemyTab.getValue(cellRow, cellCol) != 1) {
-                    square.setOutlineColor(getOutlineColor(enemyTab.getValue(cellRow, cellCol)));
-                    square.setFillColor(getFillColor(enemyTab.getValue(cellRow, cellCol)));
+                if (not finished) {
+                    if (enemyTab.getValue(cellRow, cellCol) != 1) {
+                        square.setOutlineColor(getOutlineColor(enemyTab.getValue(cellRow, cellCol)));
+                        square.setFillColor(getFillColor(enemyTab.getValue(cellRow, cellCol)));
+                    }
+                    else {
+                        square.setOutlineColor(sf::Color::White);
+                        square.setFillColor(sf::Color::Transparent);
+                    }
                 }
                 else {
-                    square.setOutlineColor(sf::Color::White);
-                    square.setFillColor(sf::Color::Transparent);
+                    if (enemyTab.getValue(cellRow, cellCol) != 1) {
+                        square.setOutlineColor(getOutlineColor(enemyTab.getValue(cellRow, cellCol)));
+                        square.setFillColor(getFillColor(enemyTab.getValue(cellRow, cellCol)));
+                    }
+                    else {
+                        square.setOutlineColor(sf::Color::Magenta);
+                        square.setFillColor(sf::Color::Magenta);
+                    }
                 }
                 window.draw(square);
             }
@@ -353,6 +367,15 @@ void createBoards(sf::RenderWindow& window, sf::Text text, player localTab, play
 }
 
 void createBottomInfo(sf::RenderWindow& window, sf::Text text, player localTab, player enemyTab) {
+    if (finished) {
+        text.setPosition(350.f, 500.f);
+        text.setString(winner ? "Wygrales!" : "Przegrales!");
+        text.setFillColor(winner ? sf::Color::Green : sf::Color::Red);
+        text.setCharacterSize(40);
+        window.draw(text);
+        return;
+	}
+
     if (!started) {
         if (!ready) {
             text.setPosition(50.f, 500.f);
@@ -361,24 +384,6 @@ void createBottomInfo(sf::RenderWindow& window, sf::Text text, player localTab, 
             text.setCharacterSize(19);
             window.draw(text);
         }
-    } else {
-        text.setPosition(490.f, 500.f);
-        text.setString("Pozostalo " + to_string(enemyTab.getShipsLeft()) + " wrogich jednostek.");
-        text.setCharacterSize(19);
-        text.setFillColor(sf::Color::White);
-        window.draw(text);
-
-        if (turn) {
-            text.setPosition(490.f, 530.f);
-            text.setString("Kliknij na plansze przeciwnika aby strzelic.");
-            text.setCharacterSize(19);
-            text.setFillColor(sf::Color::White);
-            window.draw(text);
-        }
-
-    }
-
-    if (!started) {
         if (localTab.getShipsAmount() == localTab.getMaxShipsAmount()) {
             // Status lokoalny
             text.setPosition(490.f, 500.f);
@@ -411,22 +416,35 @@ void createBottomInfo(sf::RenderWindow& window, sf::Text text, player localTab, 
             window.draw(text);
         }
     } else {
+        text.setPosition(490.f, 500.f);
+        text.setString("Pozostalo " + to_string(enemyTab.getShipsLeft()) + " wrogich jednostek.");
+        text.setCharacterSize(19);
+        text.setFillColor(sf::Color::White);
+        window.draw(text);
+
         text.setPosition(50.f, 500.f);
         text.setCharacterSize(19);
         if (turn) {
             text.setString(L"Gra rozpoczęta!\nTwój ruch");
             text.setFillColor(sf::Color::Yellow);
+            window.draw(text);
+
+            text.setPosition(490.f, 530.f);
+            text.setString("Kliknij na plansze przeciwnika aby strzelic.");
+            text.setCharacterSize(19);
+            text.setFillColor(sf::Color::White);
+            window.draw(text);
         } else {
             text.setString(L"Gra rozpoczęta!\nOczekiwanie na ruch przeciwnika");
             text.setFillColor(sf::Color::White);
+            window.draw(text);
         }
-        window.draw(text);
     }
 }
 
 bool gameSys(sf::RenderWindow& window, player& localTab, player& enemyTab) {
     // odbiór pakietów (non-blocking)
-    if (socket.getRemoteAddress() != sf::IpAddress::None || (!isHost && socket.getRemoteAddress() != sf::IpAddress::None)) {
+    if (socket.getRemoteAddress() != sf::IpAddress::None) { //  ... || (!isHost && socket.getRemoteAddress() != sf::IpAddress::None)
         sf::Packet packet;
         sf::Socket::Status recvStatus = socket.receive(packet);
         if (recvStatus == sf::Socket::Done) {
@@ -499,8 +517,6 @@ bool gameSys(sf::RenderWindow& window, player& localTab, player& enemyTab) {
                 if (UdebugMode) cout << "cmdE: " << cmd;
             }
         }
-
-        return 1;
     }
 
     sf::Event event;
@@ -608,6 +624,24 @@ bool gameSys(sf::RenderWindow& window, player& localTab, player& enemyTab) {
     return true;
 }
 
+bool checkWin(player localTab, player enemyTab) {
+    if (localTab.getShipsLeft() == 0) {
+        cout << "Przegrałeś!" << "\n";
+		winner = false;
+        finished = true;
+        return true;
+    }
+
+    if (enemyTab.getShipsLeft() == 0) {
+        cout << "Wygrałeś!" << "\n";
+		winner = true;
+        finished = true;
+        return true;
+    }
+
+    return false;
+}
+
 int main() {
     srand(time(0));
     socket.setBlocking(false);
@@ -688,6 +722,8 @@ int main() {
         }
     }
 
+    string windowText = isHost ? "Ships (network host)" : "Ships (network)";
+
     if (isHost) {
         bool connected = false;
 
@@ -716,40 +752,27 @@ int main() {
         } else {
             if (UdebugMode) cout << "Ty zaczynasz!" << "\n";
         }
+    }
 
-        sf::RenderWindow window(sf::VideoMode(950, 600), "Ships (network host)");
+    sf::RenderWindow window(sf::VideoMode(950, 600), windowText);
 
-        while (window.isOpen()) {
-            if (not gameSys(window, localTab, enemyTab)) {
-				return 0;
-             }
+    while (window.isOpen()) {
+        window.clear(sf::Color::Black);
 
-            window.clear(sf::Color::Black);
-
-            sf::Text text;
-            text.setFont(font);
-            createBoards(window, text, localTab, enemyTab);
-            createBottomInfo(window, text, localTab, enemyTab);
-
-            window.display();
+        if (not gameSys(window, localTab, enemyTab)) {
+            return 0;
         }
-    } else {
-        sf::RenderWindow window(sf::VideoMode(950, 600), "Ships (network)");
-
-        while (window.isOpen()) {
-            if (not gameSys(window, localTab, enemyTab)) {
-				return 0;
-             }
-
-            window.clear(sf::Color::Black);
-
-            sf::Text text;
-            text.setFont(font);
-            createBoards(window, text, localTab, enemyTab);
-            createBottomInfo(window, text, localTab, enemyTab);
-
-            window.display();
+        if (not finished) {
+            checkWin(localTab, enemyTab);
         }
+
+        sf::Text text;
+        text.setFont(font);
+
+        createBoards(window, text, localTab, enemyTab);
+        createBottomInfo(window, text, localTab, enemyTab);
+        
+        window.display();
     }
 
     return 0;
