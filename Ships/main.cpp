@@ -3,8 +3,8 @@
  * Autor       : Dominik Szczerbal
  * Klasa       : 3 TIP
  * Data        : 2025-10-25
- * Wersja      : 1.2
- * Opis        : Gra w statki oline dla dwóch graczy z wykorzystaniem SFML
+ * Wersja      : 1.3
+ * Opis        : Gra w statki online dla dwóch graczy z wykorzystaniem SFML
  * Zależności  : C++98 lub nowszy
  * Kompilacja  : g++ main.cpp -o main -lsfml-graphics -lsfml-window 
  *             : -lsfml-system
@@ -42,6 +42,7 @@ bool winner = 0;
 // ŁĄCZENIE SIECIOWE
 bool isHost = false;
 sf::TcpListener listener;
+sf::TcpSocket* gameSocket = nullptr;
 sf::TcpSocket socket;
 sf::IpAddress otherIp;
 
@@ -644,7 +645,6 @@ bool checkWin(player localTab, player enemyTab) {
 
 int main() {
     srand(time(0));
-    socket.setBlocking(false);
 
     sf::Font font;
     if (!font.loadFromFile("Bitter.ttf"))
@@ -657,93 +657,121 @@ int main() {
     player localTab;
     player enemyTab;
 
-    while (true) {
+    bool connected = false;
+
+    while (!connected) {
         cout << "Host (h) czy Join (j)? ";
 
-        string input; cin >> input;
-	    char opt = tolower(input[0]);
+        string input;
+        getline(cin, input);
+        if (input.empty()) continue;
+
+        char opt = tolower(input[0]);
 
         if (opt == 'h') {
             isHost = true;
 
-            cout << "Oczekiwanie na gracza... (Port 53000)" << "\n";
+            cout << "Oczekiwanie na gracza..." << "\n";
             if (listener.listen(53000) != sf::Socket::Done) {
                 cout << "Nie mozna nasłuchiwać na porcie 53000!" << "\n";
                 return -1;
             }
 
-            listener.setBlocking(false);
-            break;
+            cout << "Oczekiwanie na klienta...\n";
+            while (true) {
+                sf::Socket::Status status = listener.accept(socket);
 
-        } else if (opt == 'z') {
-            while (opt == 'z') {
-                cout << "\nUstawienia"
-                     << "\n1.debugMode = " << UdebugMode 
-                     << "\n2. showBoard = " << UshowBoard 
-                     << "\n3. showEnemyBoard = " << UshowEnemyBoard 
-                     << "\n4. Wyjście"
-                     << "\nWyb: ";
-				char Uopt; cin >> Uopt;
+                if (status == sf::Socket::Done) {
+                    cout << "Połączono z klientem!\n";
+
+                    socket.setBlocking(false);
+
+                    connected = true;
+                    break;
+                }
+                else if (status == sf::Socket::NotReady) {
+                    cout << "." << flush;
+                    sf::sleep(sf::milliseconds(500));
+                    continue;
+                }
+                else {
+                    cout << "Błąd połączenia!\n";
+                    return -1;
+                }
+            }
+            break;
+        }
+        else if (opt == 'z') {
+            bool inSettings = true;
+            while (inSettings) {
+                cout << "\n=== USTAWIENIA ==="
+                    << "\n1. debugMode = " << UdebugMode
+                    << "\n2. showBoard = " << UshowBoard
+                    << "\n3. showEnemyBoard = " << UshowEnemyBoard
+                    << "\n4. Wyjście z ustawień"
+                    << "\nWybór: ";
+
+                string uInput;
+                getline(cin, uInput);
+                if (uInput.empty()) continue;
+
+                char Uopt = uInput[0];
+
                 switch (Uopt) {
                 case '1':
                     UdebugMode = !UdebugMode;
-                    continue;
+                    break;
                 case '2':
                     UshowBoard = !UshowBoard;
-                    continue;
+                    break;
                 case '3':
                     UshowEnemyBoard = !UshowEnemyBoard;
-                    continue;
+                    break;
                 case '4':
-                    opt = ' ';
-                    cout << "\n";
+                    inSettings = false;
+                    cout << "\nPowrót do menu\n";
+                    break;
+                default:
+                    cout << "Nieprawidłowa opcja!\n";
                 }
             }
 
-        } else if (opt == 'j') {
+        }
+        else if (opt == 'j') {
             cout << "Podaj IP hosta: ";
-            string ip; cin >> ip;
+            string ip;
+            getline(cin, ip);
             otherIp = ip;
-            cout << "Probuje polaczyc..." << "\n";
 
-            if (socket.connect(otherIp, 53000, sf::seconds(10)) != sf::Socket::Done) {
-                cout << "Ponawiam łączenie..." << "\n"; // nadal kontynuujemy, uzytkownik moze sprobowac pozniej
+            cout << "Próbuję połączyć z " << otherIp << "...\n";
 
-            } else {
-                cout << "Polaczono z hostem: " << otherIp << "\n";
-                socket.setBlocking(false);
+            while (!connected) {
+                socket.setBlocking(true);
+                sf::Socket::Status status = socket.connect(otherIp, 53000, sf::seconds(2));
+
+                if (status == sf::Socket::Done) {
+                    cout << "Połączono z hostem: " << otherIp << "\n";
+
+                    socket.setBlocking(false);
+
+                    connected = true;
+                    break;
+                }
+                else {
+                    cout << "Oczekiwanie na hosta...\n";
+                    sf::sleep(sf::milliseconds(2000));
+                }
             }
-
             break;
-
-        } else {
-			cout << "Nieprawidłowa opcja!" << "\n\n";
-            continue;
+        }
+        else {
+            cout << "Nieprawidłowa opcja!\n\n";
         }
     }
 
     string windowText = isHost ? "Ships (network host)" : "Ships (network)";
 
     if (isHost) {
-        bool connected = false;
-
-        while (true) {
-            if (socket.getRemoteAddress() == sf::IpAddress::None) {
-                sf::Socket::Status status = listener.accept(socket);
-                if (status == sf::Socket::Done) {
-                    cout << "Klient polaczony: " << socket.getRemoteAddress() << "\n";
-                    socket.setBlocking(false);
-                    connected = true;
-                    break;
-                }
-            }
-        }
-
-        if (!connected) {
-            cout << "Upłynął limit czasu oczekiwania!" << "\n";
-            return 0;
-        }
-
         turn = rand() % 2 == 0; // Losowanie kto zaczyna
         if (!turn) {
             if (UdebugMode) cout << "Przeciwnik zaczyna!" << "\n";
